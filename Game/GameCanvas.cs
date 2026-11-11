@@ -17,18 +17,6 @@ namespace Luftwaffe;
 // Draws the game and runs the game loop
 public class GameCanvas : Control
 {
-    private static readonly IBrush SkyBrush = new LinearGradientBrush
-    {
-        StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-        EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-        GradientStops =
-        {
-            new GradientStop(Color.Parse("#3D7CC9"), 0),
-            new GradientStop(Color.Parse("#BFE3FF"), 1)
-        }
-    };
-    private static readonly IBrush SeaBrush = new SolidColorBrush(Color.Parse("#2E5E8C"));
-    private static readonly IBrush CloudBrush = new SolidColorBrush(Color.Parse("#E6FFFFFF"));
     private static readonly IBrush BulletBrush = new SolidColorBrush(Color.Parse("#FFE066"));
     private static readonly IBrush EnemyBulletBrush = new SolidColorBrush(Color.Parse("#FF5A3C"));
     private static readonly IBrush HpBackBrush = new SolidColorBrush(Color.Parse("#80000000"));
@@ -36,15 +24,13 @@ public class GameCanvas : Control
 
     private static readonly Typeface HudFont = new("Consolas", FontStyle.Normal, FontWeight.Bold);
 
-    // Cloud positions in the world: x, y, width
-    private static readonly (double X, double Y, double W)[] Clouds =
-    {
-        (40, 50, 70), (200, 90, 50), (330, 40, 90), (470, 110, 60), (600, 70, 80)
-    };
+    // How fast the background moves compared to the world (0.5 = half speed, feels far away)
+    private const double BackgroundParallax = 0.5;
 
     private GameWorld _world = new();
     private readonly InputState _input = new();
     private readonly Dictionary<string, Bitmap> _planeSprites = new(); // Key = sprite path
+    private readonly Bitmap _sky;
     private readonly DispatcherTimer _timer;
     private readonly Stopwatch _clock = new();
     private TopLevel? _topLevel;
@@ -59,7 +45,10 @@ public class GameCanvas : Control
             _planeSprites[model.Sprite] = bitmap;
         }
 
-        // The plane images are large, so smooth scaling looks best when shrinking them
+        // Scrolling background image
+        _sky = new Bitmap(AssetLoader.Open(new Uri("avares://Luftwaffe/Assets/sky.png")));
+
+        // The images are large, so smooth scaling looks best when shrinking them
         RenderOptions.SetBitmapInterpolationMode(this, BitmapInterpolationMode.HighQuality);
 
         // ~60 frames per second
@@ -137,21 +126,21 @@ public class GameCanvas : Control
         }
     }
 
+    // Draws the sky image side by side so it loops forever while scrolling
+       // Draws the sky image side by side so it loops forever while scrolling
     private void DrawBackground(DrawingContext context)
     {
-        context.FillRectangle(SkyBrush, new Rect(0, 0, GameWorld.Width, GameWorld.SeaLevel));
-        context.FillRectangle(SeaBrush,
-            new Rect(0, GameWorld.SeaLevel, GameWorld.Width, GameWorld.Height - GameWorld.SeaLevel));
+        // Fit the image to the world height and keep its shape
+        double h = GameWorld.Height;
+        double w = Math.Round(h * _sky.Size.Width / _sky.Size.Height);
 
-        // Clouds move at half the scroll speed (parallax = feeling of depth)
-        double loopWidth = GameWorld.Width + 100;
-        foreach (var c in Clouds)
+        // Round to whole pixels so the copies line up exactly
+        double x = -Math.Floor(_world.ScrollX * BackgroundParallax % w);
+        while (x < GameWorld.Width)
         {
-            double x = (c.X - _world.ScrollX * 0.5) % loopWidth;
-            if (x < -100) x += loopWidth;
-
-            context.DrawEllipse(CloudBrush, null, new Point(x, c.Y), c.W / 2, c.W / 6);
-            context.DrawEllipse(CloudBrush, null, new Point(x + c.W * 0.15, c.Y - c.W / 10), c.W / 4, c.W / 6);
+            // Draw 1 pixel wider so neighbouring copies overlap and leave no gap
+            context.DrawImage(_sky, new Rect(x, 0, w + 1, h));
+            x += w;
         }
     }
 
