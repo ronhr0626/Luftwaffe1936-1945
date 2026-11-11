@@ -21,19 +21,45 @@ public class GameCanvas : Control
     private static readonly IBrush EnemyBulletBrush = new SolidColorBrush(Color.Parse("#FF5A3C"));
     private static readonly IBrush HpBackBrush = new SolidColorBrush(Color.Parse("#80000000"));
     private static readonly IBrush HpBrush = new SolidColorBrush(Color.Parse("#5CD65C"));
+    private static readonly IBrush OverlayBrush = new SolidColorBrush(Color.Parse("#99000000"));
+    private static readonly IBrush HeadingBrush = new SolidColorBrush(Color.Parse("#FFE066"));
 
     private static readonly Typeface HudFont = new("Consolas", FontStyle.Normal, FontWeight.Bold);
 
     // How fast the background moves compared to the world (0.5 = half speed, feels far away)
     private const double BackgroundParallax = 0.5;
 
+    private static readonly string[] ControlLines =
+    {
+        "Arrows / WASD    Fly",
+        "SPACE (hold)     Fire",
+        "R                Play again",
+        "ENTER            Title screen"
+    };
+
+    private static readonly string[] RuleLines =
+    {
+        "Shoot down a British plane   +10",
+        "A plane escapes               -2",
+        "Every 10 kills = next German plane",
+        "20 enemies per wave",
+        "Each wave is one level stronger",
+        "3 lives - crashes hurt too"
+    };
+
     private GameWorld _world = new();
+    private readonly HighScores _highScores = new();
     private readonly InputState _input = new();
     private readonly Dictionary<string, Bitmap> _planeSprites = new(); // Key = sprite path
     private readonly Bitmap _sky;
     private readonly DispatcherTimer _timer;
     private readonly Stopwatch _clock = new();
     private TopLevel? _topLevel;
+
+    private bool _onTitle = true;
+    private bool _scoreSaved;
+    private int _lastPlace;     // Place on the high score list for the last game, 0 = not on the list
+    private double _bgScroll;   // Background keeps moving on every screen
 
     public GameCanvas()
     {
@@ -92,14 +118,42 @@ public class GameCanvas : Control
         _clock.Restart();
         dt = Math.Min(dt, 0.05); // Avoid huge jumps if the window freezes
 
-        // R starts a new game after game over or victory
-        if ((_world.IsGameOver || _world.IsVictory) && _input.Restart)
-            _world = new GameWorld();
+        _bgScroll += GameWorld.ScrollSpeed * dt;
 
-        _world.Update(dt, _input);
+        if (_onTitle)
+        {
+            if (_input.Start)
+                StartNewGame();
+        }
+        else
+        {
+            _world.Update(dt, _input);
+
+            bool ended = _world.IsGameOver || _world.IsVictory;
+
+            // Save the score once, the moment the game ends
+            if (ended && !_scoreSaved)
+            {
+                _lastPlace = _highScores.Add(_world.Score);
+                _scoreSaved = true;
+            }
+
+            if (ended && _input.Restart)
+                StartNewGame();
+            else if (ended && _input.Start)
+                _onTitle = true;
+        }
+
         _input.EndFrame();
-
         InvalidateVisual();
+    }
+
+    private void StartNewGame()
+    {
+        _world = new GameWorld();
+        _scoreSaved = false;
+        _lastPlace = 0;
+        _onTitle = false;
     }
 
     public override void Render(DrawingContext context)
@@ -118,6 +172,13 @@ public class GameCanvas : Control
         using (context.PushClip(new Rect(0, 0, GameWorld.Width, GameWorld.Height)))
         {
             DrawBackground(context);
+
+            if (_onTitle)
+            {
+                DrawTitle(context);
+                return;
+            }
+
             DrawEnemies(context);
             DrawBullets(context);
             DrawEnemyBullets(context);
@@ -127,7 +188,6 @@ public class GameCanvas : Control
     }
 
     // Draws the sky image side by side so it loops forever while scrolling
-       // Draws the sky image side by side so it loops forever while scrolling
     private void DrawBackground(DrawingContext context)
     {
         // Fit the image to the world height and keep its shape
@@ -135,13 +195,59 @@ public class GameCanvas : Control
         double w = Math.Round(h * _sky.Size.Width / _sky.Size.Height);
 
         // Round to whole pixels so the copies line up exactly
-        double x = -Math.Floor(_world.ScrollX * BackgroundParallax % w);
+        double x = -Math.Floor(_bgScroll * BackgroundParallax % w);
         while (x < GameWorld.Width)
         {
             // Draw 1 pixel wider so neighbouring copies overlap and leave no gap
             context.DrawImage(_sky, new Rect(x, 0, w + 1, h));
             x += w;
         }
+    }
+
+    private void DrawTitle(DrawingContext context)
+    {
+        context.FillRectangle(OverlayBrush, new Rect(0, 0, GameWorld.Width, GameWorld.Height));
+
+        double cx = GameWorld.Width / 2;
+        DrawText(context, "LUFTWAFFE 1936-1945", cx, 20, 28, TextAlignment.Center);
+
+        // Left column: controls and rules
+        double lx = 50;
+        double y = 80;
+
+        DrawText(context, "CONTROLS", lx, y, 12, brush: HeadingBrush);
+        y += 18;
+        foreach (var line in ControlLines)
+        {
+            DrawText(context, line, lx, y, 10);
+            y += 14;
+        }
+
+        y += 10;
+        DrawText(context, "HOW TO PLAY", lx, y, 12, brush: HeadingBrush);
+        y += 18;
+        foreach (var line in RuleLines)
+        {
+            DrawText(context, line, lx, y, 10);
+            y += 14;
+        }
+
+        // Right column: high scores
+        double rx = 430;
+        y = 80;
+
+        DrawText(context, "HIGH SCORES", rx, y, 12, brush: HeadingBrush);
+        y += 18;
+        for (int i = 0; i < HighScores.MaxEntries; i++)
+        {
+            string score = i < _highScores.Scores.Count ? $"{_highScores.Scores[i],6}" : "     -";
+            DrawText(context, $"{i + 1}.  {score}", rx, y, 12);
+            y += 18;
+        }
+
+        //  start prompt
+                // Start prompt
+        DrawText(context, "Press ENTER to start", cx, 320, 14, TextAlignment.Center, HeadingBrush);
     }
 
     private void DrawPlane(DrawingContext context, Player p)
@@ -210,9 +316,17 @@ public class GameCanvas : Control
 
     private void DrawEndScreen(DrawingContext context, string title)
     {
-        DrawText(context, title, GameWorld.Width / 2, 130, 32, TextAlignment.Center);
-        DrawText(context, $"Final score: {_world.Score}", GameWorld.Width / 2, 175, 16, TextAlignment.Center);
-        DrawText(context, "Press R to restart", GameWorld.Width / 2, 200, 12, TextAlignment.Center);
+        double cx = GameWorld.Width / 2;
+
+        DrawText(context, title, cx, 120, 32, TextAlignment.Center);
+        DrawText(context, $"Final score: {_world.Score}", cx, 165, 16, TextAlignment.Center);
+
+        if (_lastPlace == 1)
+            DrawText(context, "NEW HIGH SCORE!", cx, 190, 14, TextAlignment.Center, HeadingBrush);
+        else if (_lastPlace > 1)
+            DrawText(context, $"#{_lastPlace} on the high score list", cx, 190, 12, TextAlignment.Center, HeadingBrush);
+
+        DrawText(context, "R = play again    ENTER = title screen", cx, 220, 11, TextAlignment.Center);
     }
 
     private static FormattedText MakeText(string text, double size, IBrush brush) =>
@@ -220,9 +334,9 @@ public class GameCanvas : Control
 
     // Text with a dark shadow. x is the left edge, center or right edge depending on align.
     private static void DrawText(DrawingContext context, string text, double x, double y, double size,
-        TextAlignment align = TextAlignment.Left)
+        TextAlignment align = TextAlignment.Left, IBrush? brush = null)
     {
-        var main = MakeText(text, size, Brushes.White);
+        var main = MakeText(text, size, brush ?? Brushes.White);
         var shadow = MakeText(text, size, Brushes.Black);
 
         double drawX = align switch

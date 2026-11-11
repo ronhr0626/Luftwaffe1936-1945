@@ -33,4 +33,5 @@ public class InputState
     // One-shot keys
     public bool Upgrade => _pressed.Contains(PhysicalKey.U); // Test key
     public bool Restart => _pressed.Contains(PhysicalKey.R);
+    public bool Start => _pressed.Contains(PhysicalKey.Enter) || _pressed.Contains(PhysicalKey.NumPadEnter);
 }
