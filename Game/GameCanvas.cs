@@ -37,13 +37,13 @@ public class GameCanvas : Control
         "ENTER            Title screen"
     };
 
-    private static readonly string[] RuleLines =
+       private static readonly string[] RuleLines =
     {
         "Shoot down a British plane   +10",
         "A plane escapes               -2",
-        "Every 10 kills = next German plane",
-        "20 enemies per wave",
-        "Each wave is one level stronger",
+        "Every 20 kills = next German plane",
+        "Enemies get stronger every 15 planes",
+        "Win: 20 kills with the Me 262",
         "3 lives - crashes hurt too"
     };
 
@@ -282,15 +282,17 @@ public class GameCanvas : Control
             context.FillRectangle(EnemyBulletBrush, new Rect(b.X, b.Y, EnemyBullet.Size, EnemyBullet.Size));
     }
 
-    private void DrawHud(DrawingContext context)
+       private void DrawHud(DrawingContext context)
     {
         var model = _world.Player.Model;
         int level = _world.PlayerLevel;
 
-        // Left: player plane, level and progress to next plane
+        // Left: player plane, level and progress to next plane (or to victory)
         DrawText(context, $"{model.Name}  ({model.Year})  Lv {level}", 10, 4, 12);
-        string next = level >= GameWorld.MaxLevel ? "MAX" : $"{_world.KillsToNextUpgrade}";
-        DrawText(context, $"Kills: {_world.Kills}   Next plane in: {next}", 10, 18, 9);
+        string progress = level >= GameWorld.MaxLevel
+            ? $"Kills to win: {_world.KillsLeftToWin}"
+            : $"Next plane in: {_world.KillsToNextUpgrade}";
+        DrawText(context, $"Kills: {_world.Kills}   {progress}", 10, 18, 9);
 
         // Center: HP bar and lives
         const double barWidth = 100;
@@ -303,8 +305,8 @@ public class GameCanvas : Control
 
         // Right: score and current British wave
         DrawText(context, $"Score: {_world.Score}", GameWorld.Width - 10, 4, 12, TextAlignment.Right);
-        string wave = _world.AllWavesSpawned
-            ? "Last wave"
+        string wave = _world.EnemiesAtMaxLevel
+            ? $"Enemy Lv {GameWorld.MaxLevel} (max)"
             : $"Enemy Lv {_world.EnemyLevel}  ({_world.SpawnedInWave}/{GameWorld.EnemiesPerWave})";
         DrawText(context, wave, GameWorld.Width - 10, 18, 9, TextAlignment.Right);
 
@@ -313,7 +315,6 @@ public class GameCanvas : Control
         else if (_world.IsVictory)
             DrawEndScreen(context, "VICTORY!");
     }
-
     private void DrawEndScreen(DrawingContext context, string title)
     {
         double cx = GameWorld.Width / 2;

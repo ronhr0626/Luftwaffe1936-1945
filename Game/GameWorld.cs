@@ -15,12 +15,13 @@ public class GameWorld
 
     // Game rules
     public const int MaxLevel = 10;
-    public const int EnemiesPerWave = 20;      // British planes per level
-    public const int KillsPerUpgrade = 10;     // Kills needed for the next German plane
+    public const int EnemiesPerWave = 15;      // British planes before the next enemy level
+    public const int KillsPerUpgrade = 20;     // Kills needed for the next German plane
+    public const int KillsToWin = 20;          // Kills needed at max level to win
     public const int PointsPerKill = 10;
     public const int PointsLostPerEscape = 2;
     public const int StartLives = 3;
-    public const double RespawnInvulnerability = 2.0; // Seconds
+    public const double RespawnInvulnerability = 5.0; // Seconds
     public const double HitInvulnerability = 0.3;     // Short pause so one burst doesn't stack
 
     private const double StartX = 60;
@@ -31,12 +32,13 @@ public class GameWorld
     public List<Enemy> Enemies { get; } = new();
     public List<EnemyBullet> EnemyBullets { get; } = new();
 
-    // How far the world has scrolled, used to move clouds
+    // How far the world has scrolled
     public double ScrollX { get; private set; }
 
     public int Score { get; private set; }
     public int Kills { get; private set; }
-    public int EnemyLevel { get; private set; } = 1; // Level of the current British wave
+    public int KillsAtMaxLevel { get; private set; }  // Kills made while flying the last plane
+    public int EnemyLevel { get; private set; } = 1;  // Level of the current British wave
     public int SpawnedInWave { get; private set; }
 
     public int Lives { get; private set; } = StartLives;
@@ -46,12 +48,13 @@ public class GameWorld
     public double InvulnerableTime { get; private set; }
     public bool IsInvulnerable => InvulnerableTime > 0;
 
-    public bool AllWavesSpawned => EnemyLevel > MaxLevel;
-    public bool IsVictory => AllWavesSpawned && Enemies.Count == 0;
+    public bool EnemiesAtMaxLevel => EnemyLevel >= MaxLevel;
+    public bool IsVictory => KillsAtMaxLevel >= KillsToWin;
 
     // Rule: player level = position in the plane list. Damage per bullet and max HP = level.
     public int PlayerLevel => Array.IndexOf(PlaneModels.All, Player.Model) + 1;
     public int KillsToNextUpgrade => KillsPerUpgrade - Kills % KillsPerUpgrade;
+    public int KillsLeftToWin => KillsToWin - KillsAtMaxLevel;
 
     private readonly Random _rng = new();
     private double _spawnTimer = 1.0;
@@ -86,14 +89,12 @@ public class GameWorld
 
     private void UpdateEnemies(double dt)
     {
-        if (!AllWavesSpawned)
+        // Enemies keep coming until the player wins
+        _spawnTimer -= dt;
+        if (_spawnTimer <= 0)
         {
-            _spawnTimer -= dt;
-            if (_spawnTimer <= 0)
-            {
-                SpawnEnemy();
-                _spawnTimer = SpawnInterval();
-            }
+            SpawnEnemy();
+            _spawnTimer = SpawnInterval();
         }
 
         foreach (var enemy in Enemies)
@@ -118,7 +119,10 @@ public class GameWorld
         enemy.Y = TopLimit + _rng.NextDouble() * (SeaLevel - TopLimit - enemy.Height);
         Enemies.Add(enemy);
 
-        // After 20 planes, the next wave is one level higher
+        // After 15 planes, the next wave is one level higher. Level 10 is the last.
+        if (EnemiesAtMaxLevel)
+            return;
+
         SpawnedInWave++;
         if (SpawnedInWave >= EnemiesPerWave)
         {
@@ -249,9 +253,17 @@ public class GameWorld
     private void OnEnemyKilled()
     {
         Score += PointsPerKill;
+        bool wasAtMaxLevel = PlayerLevel >= MaxLevel;
         Kills++;
 
-        // Every 10th kill gives the next German plane
+        // With the last plane, kills count towards victory
+        if (wasAtMaxLevel)
+        {
+            KillsAtMaxLevel++;
+            return;
+        }
+
+        // Every 20th kill gives the next German plane
         if (Kills % KillsPerUpgrade == 0)
             UpgradePlane();
     }
